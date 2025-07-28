@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Leaderboard Dashboard</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; background: #f5f7fa; }
+  h1 { text-align: center; }
+  nav { margin-bottom: 20px; text-align: center; }
+  nav button { margin: 0 5px; padding: 10px 20px; font-size: 16px; cursor: pointer; }
+  .hidden { display: none; }
+  table { border-collapse: collapse; width: 100%; max-width: 800px; margin: 0 auto 30px; background: white; box-shadow: 0 0 10px #ccc; }
+  th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+  th { background: #1a73e8; color: white; }
+  tbody tr:hover { background: #f1f1f1; }
+  form { max-width: 700px; margin: 0 auto 40px; background: white; padding: 20px; box-shadow: 0 0 10px #ccc; }
+  form input, form select { padding: 8px; margin: 5px 10px 15px 0; font-size: 16px; }
+  form button { padding: 10px 20px; font-size: 16px; cursor: pointer; background: #1a73e8; color: white; border: none; }
+  .export-buttons { text-align: center; margin-bottom: 40px; }
+  .export-buttons button { margin: 0 10px; padding: 10px 20px; background: #4CAF50; border: none; color: white; cursor: pointer; font-size: 16px; }
+  #csvFileInput { margin-left: 10px; }
+</style>
+</head>
+<body>
+
+<h1>Contributions Leaderboard Dashboard</h1>
+
+<nav>
+  <button onclick="showTab('raw')">Raw Data Entry</button>
+  <button onclick="showTab('leaderboard')">Leaderboard</button>
+  <button onclick="showTab('weekly')">Weekly Totals</button>
+</nav>
+
+<!-- Raw Data Entry Tab -->
+<section id="raw" class="">
+  <form id="contribution-form">
+    <label>Date: <input type="date" id="date" required /></label>
+    <label>Name: <input type="text" id="name" required placeholder="Contributor Name" /></label>
+    <label>Amount: <input type="number" id="amount" min="0.01" step="0.01" required placeholder="Amount in $" /></label>
+    <button type="submit">Add Contribution</button>
+  </form>
+
+  <div style="max-width:700px; margin:0 auto 20px; text-align:center;">
+    <label for="csvFileInput"><strong>Import CSV file (Date,Name,Amount): </strong></label>
+    <input type="file" id="csvFileInput" accept=".csv" />
+  </div>
+
+  <div class="export-buttons">
+    <button onclick="exportTableToCSV('RawData.csv', 'raw-data-table')">Export Raw Data to CSV</button>
+  </div>
+
+  <table id="raw-data-table">
+    <thead>
+      <tr>
+        <th>Date</th><th>Week Start</th><th>Week End</th><th>Week Label</th><th>Name</th><th>Amount</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</section>
+
+<!-- Leaderboard Tab -->
+<section id="leaderboard" class="hidden">
+  <div class="export-buttons">
+    <button onclick="exportTableToCSV('Leaderboard.csv', 'leaderboard-table')">Export Leaderboard to CSV</button>
+  </div>
+  <table id="leaderboard-table">
+    <thead>
+      <tr><th>Rank</th><th>Name</th><th>Total Contribution ($)</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</section>
+
+<!-- Weekly Totals Tab -->
+<section id="weekly" class="hidden">
+  <div class="export-buttons">
+    <button onclick="exportTableToCSV('WeeklyTotals.csv', 'weekly-totals-table')">Export Weekly Totals to CSV</button>
+  </div>
+  <table id="weekly-totals-table">
+    <thead>
+      <tr><th>Week Start</th><th>Week End</th><th>Week Label</th><th>Total Amount ($)</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</section>
+
+<script>
+  let rawData = [];
+
+  // Show/hide tabs
+  function showTab(tabId) {
+    document.querySelectorAll('section').forEach(s => s.classList.add('hidden'));
+    document.getElementById(tabId).classList.remove('hidden');
+  }
+
+  // Format date to YYYY-MM-DD
+  function formatDate(date) {
+    return date.toISOString().slice(0, 10);
+  }
+
+  // Get week start (Monday) and week end (Sunday) for a date string
+  function getWeekRange(dateStr) {
+    const date = new Date(dateStr);
+    let day = date.getDay();
+    day = (day === 0) ? 7 : day; // Sunday=7
+    const monday = new Date(date);
+    monday.setDate(date.getDate() - (day - 1));
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    return {
+      weekStart: formatDate(monday),
+      weekEnd: formatDate(sunday),
+      weekLabel: `Week of ${formatDate(monday)}`
+    };
+  }
+
+  // Render raw data table
+  function renderRawData() {
+    const tbody = document.querySelector('#raw-data-table tbody');
+    tbody.innerHTML = '';
+    rawData.forEach(row => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${row.Date}</td>
+        <td>${row.Week_Start}</td>
+        <td>${row.Week_End}</td>
+        <td>${row.Week_Label}</td>
+        <td>${row.Name}</td>
+        <td>$${row.Amount.toFixed(2)}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // Render leaderboard table (consolidated totals, ranked)
+  function updateLeaderboard() {
+    const totals = {};
+    rawData.forEach(({Name, Amount}) => {
+      totals[Name] = (totals[Name] || 0) + Amount;
+    });
+
+    const ranked = Object.entries(totals)
+      .map(([Name, Total]) => ({Name, Total}))
+      .sort((a,b) => b.Total - a.Total);
+
+    const tbody = document.querySelector('#leaderboard-table tbody');
+    tbody.innerHTML = '';
+    ranked.forEach(({Name, Total}, index) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${index + 1}</td>
+        <td>${Name}</td>
+        <td>$${Total.toFixed(2)}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // Render weekly totals table
+  function updateWeeklyTotals() {
+    const weekly = {};
+    rawData.forEach(({Week_Start, Week_End, Week_Label, Amount}) => {
+      if (!weekly[Week_Label]) {
+        weekly[Week_Label] = {Week_Start, Week_End, Week_Label, Total: 0};
+      }
+      weekly[Week_Label].Total += Amount;
+    });
+
+    const sortedWeeks = Object.values(weekly).sort((a,b) => new Date(a.Week_Start) - new Date(b.Week_Start));
+
+    const tbody = document.querySelector('#weekly-totals-table tbody');
+    tbody.innerHTML = '';
+    sortedWeeks.forEach(({Week_Start, Week_End, Week_Label, Total}) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${Week_Start}</td>
+        <td>${Week_End}</td>
+        <td>${Week_Label}</td>
+        <td>$${Total.toFixed(2)}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // Add new contribution from form
+  document.getElementById('contribution-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const dateInput = document.getElementById('date').value;
+    const nameInput = document.getElementById('name').value.trim();
+    const amountInput = parseFloat(document.getElementById('amount').value);
+
+    if (!dateInput || !nameInput || isNaN(amountInput) || amountInput <= 0) {
+      alert('Please enter valid Date, Name, and Amount.');
+      return;
+    }
+
+    const {weekStart, weekEnd, weekLabel} = getWeekRange(dateInput);
+
+    rawData.push({
+      Date: dateInput,
+      Week_Start: weekStart,
+      Week_End: weekEnd,
+      Week_Label: weekLabel,
+      Name: nameInput,
+      Amount: amountInput
+    });
+
+    saveToLocalStorage();
+
+    renderRawData();
+    updateLeaderboard();
+    updateWeeklyTotals();
+
+    this.reset();
+  });
+
+  // CSV import handler
+  document.getElementById('csvFileInput').addEventListener('change', function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const text = e.target.result;
+      parseCSV(text);
+      event.target.value = ""; // reset input so same file can be re-uploaded if needed
+    };
+    reader.readAsText(file);
+  });
+
+  // Parse CSV text to rawData additions
+  function parseCSV(text) {
+    const lines = text.trim().split(/\r?\n/);
+    // Expect header line: Date,Name,Amount (case-insensitive)
+    const header = lines[0].split(',').map(h => h.trim().toLowerCase());
+    const dateIdx = header.indexOf('date');
+    const nameIdx = header.indexOf('name');
+    const amountIdx = header.indexOf('amount');
+    if (dateIdx === -1 || nameIdx === -1 || amountIdx === -1) {
+      alert('CSV must have headers: Date, Name, Amount');
+      return;
+    }
+
+    let newEntries = 0;
+    for (let i=1; i<lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      const cols = lines[i].split(',');
+      const dateStr = cols[dateIdx].trim();
+      const nameStr = cols[nameIdx].trim();
+      const amountStr = cols[amountIdx].replace(/[$]/g, '').trim();
+      const amountNum = parseFloat(amountStr);
+
+      if (!dateStr || !nameStr || isNaN(amountNum) || amountNum <= 0) continue;
+
+      const {weekStart, weekEnd, weekLabel} = getWeekRange(dateStr);
+
+      rawData.push({
+        Date: dateStr,
+        Week_Start: weekStart,
+        Week_End: weekEnd,
+        Week_Label: weekLabel,
+        Name: nameStr,
+        Amount: amountNum
+      });
+      newEntries++;
+    }
+    if(newEntries === 0) {
+      alert("No valid rows found in CSV");
+    } else {
+      alert(`${newEntries} contributions imported from CSV.`);
+    }
+    saveToLocalStorage();
+    renderRawData();
+    updateLeaderboard();
+    updateWeeklyTotals();
+  }
+
+  // Local Storage functions
+  function saveToLocalStorage() {
+    localStorage.setItem('contributionsRawData', JSON.stringify(rawData));
+  }
+
+  function loadFromLocalStorage() {
+    const data = localStorage.getItem('contributionsRawData');
+    if (data) {
+      rawData = JSON.parse(data);
+    }
+  }
+
+  // CSV export helper
+  function exportTableToCSV(filename, tableId) {
+    const table = document.getElementById(tableId);
+    let csv = [];
+    for (let row of table.rows) {
+      let rowData = [];
+      for (let cell of row.cells) {
+        let cellText = cell.innerText.replace(/"/g, '""');
+        if (cellText.indexOf(',') > -1 || cellText.indexOf('"') > -1) {
+          cellText = `"${cellText}"`;
+        }
+        rowData.push(cellText);
+      }
+      csv.push(rowData.join(','));
+    }
+    const csvString = csv.join('\n');
+    const blob = new Blob([csvString], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // Initialize page
+  loadFromLocalStorage();
+  renderRawData();
+  updateLeaderboard();
+  updateWeeklyTotals();
+</script>
+</body>
+</html>
